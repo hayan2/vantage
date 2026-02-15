@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
-//|                                 Dollar Rush_v4.5_HistoryMode.mq5 |
+//|                                                 Dollar Rush.mq5  |
 //|                                  Copyright 2025, p3pwp3p         |
 //|                                             https://www.mql5.com |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, p3pwp3p"
 #property link "https://www.mql5.com"
-#property version "1.5"  // 히스토리 무제한 모드(음수) & 라인 스타일 설정 추가
+#property version "1.0"
 #property strict
 
 #include <Arrays\ArrayString.mqh>
@@ -26,185 +26,196 @@ struct PivotLevels {
 
 // --- [Common Settings] ---
 input group "=== Common Settings ===";
-input int BaseMagicNumber = 202403;
-input double AccountMaxLots = 0.15;
-input int MaxSpreadPoints = 40;
-input double MinMarginLevel = 400.0;
-input int MaxEntryDistance = 200;
-input int ShowHistoryDays =
-    5;  // 0=오늘만, N=최근N일, 음수(-1)=전체기록(삭제안함)
-input ENUM_LINE_STYLE PivotLineStyle =
-    STYLE_DOT;  // [신규] 피벗 라인 스타일 설정
-input bool EnableSoundAlerts = false;
-input bool IsOptimization = false;
+input int BaseMagicNumber = 202403;   // 매직넘버 베이스
+input double AccountMaxLots = 0.15;   // 계좌 최대 랏
+input int MaxSpreadPoints = 40;       // 최대 허용 스프레드 (포인트)
+input double MinMarginLevel = 400.0;  // 최소 마진 레벨 (%)
+input int MaxEntryDistance = 200;     // 타점 초과 허용 범위
+input int ShowHistoryDays = 5;        // 과거 피벗 표시 일수 (0=오늘만, -1=전체)
+input ENUM_LINE_STYLE PivotLineStyle = STYLE_DOT;  // 피벗 라인 스타일
+input int MinDayHours = 4;  // 하루 최소 거래 시간 (미만 시 전날과 병합)
+input bool EnableSoundAlerts = false;  // 소리 알림 사용
+input bool IsOptimization = false;     // 최적화 모드 (그래픽 끔)
 
 // --- [Set 1] ---
 input group "=== SET 1 Settings ===";
-input string Set1_Symbol = "GBPAUD";
-input bool Set1_EnableBuy = true;
-input bool Set1_EnableSell = true;
-input string Set1_SellLots = "0.02,0.02,0.03,0.04,0.05,0.06";
-input string Set1_BuyLots = "0.02,0.02,0.03,0.04,0.05,0.06";
-input double Set1_GridStep = 400.0;
-input int Set1_MaxEntries = 9;
+input string Set1_Symbol = "GBPAUD";                           // 통화쌍
+input bool Set1_EnableBuy = true;                              // BUY 진입 여부
+input bool Set1_EnableSell = true;                             // SELL 진입 여부
+input string Set1_SellLots = "0.02,0.02,0.03,0.04,0.05,0.06";  // SELL 랏
+input string Set1_BuyLots = "0.02,0.02,0.03,0.04,0.05,0.06";   // BUY 랏
+input double Set1_GridStep = 400.0;  // 다음 진입 갭 (최소 거리)
+input int Set1_MaxEntries = 9;       // 최대 포지션 수
+
 // Gaps
 input group "=== SET 1 Gap ===";
-input double Set1_R1Gap = 90.0;
-input double Set1_R2Gap = 90.0;
-input double Set1_R3Gap = 70.0;
-input double Set1_R4Gap = 0.0;
-input double Set1_S1Gap = -90.0;
-input double Set1_S2Gap = -90.0;
-input double Set1_S3Gap = -70.0;
-input double Set1_S4Gap = 0.0;
+input double Set1_R1Gap = 90.0;   // R1 갭
+input double Set1_R2Gap = 90.0;   // R2 갭
+input double Set1_R3Gap = 70.0;   // R3 갭
+input double Set1_R4Gap = 0.0;    // R4 갭
+input double Set1_S1Gap = -90.0;  // S1 갭
+input double Set1_S2Gap = -90.0;  // S2 갭
+input double Set1_S3Gap = -70.0;  // S3 갭
+input double Set1_S4Gap = 0.0;    // S4 갭
+
 // Directions
 input group "=== SET 1 Direction ===";
-input ENUM_TRADE_DIR Set1_Dir_R1 = DIR_SELL;
-input ENUM_TRADE_DIR Set1_Dir_R2 = DIR_SELL;
-input ENUM_TRADE_DIR Set1_Dir_R3 = DIR_SELL;
-input ENUM_TRADE_DIR Set1_Dir_R4 = DIR_SELL;
-input ENUM_TRADE_DIR Set1_Dir_S1 = DIR_BUY;
-input ENUM_TRADE_DIR Set1_Dir_S2 = DIR_BUY;
-input ENUM_TRADE_DIR Set1_Dir_S3 = DIR_BUY;
-input ENUM_TRADE_DIR Set1_Dir_S4 = DIR_BUY;
+input ENUM_TRADE_DIR Set1_Dir_R1 = DIR_SELL;  // R1 방향
+input ENUM_TRADE_DIR Set1_Dir_R2 = DIR_SELL;  // R2 방향
+input ENUM_TRADE_DIR Set1_Dir_R3 = DIR_SELL;  // R3 방향
+input ENUM_TRADE_DIR Set1_Dir_R4 = DIR_SELL;  // R4 방향
+input ENUM_TRADE_DIR Set1_Dir_S1 = DIR_BUY;   // S1 방향
+input ENUM_TRADE_DIR Set1_Dir_S2 = DIR_BUY;   // S2 방향
+input ENUM_TRADE_DIR Set1_Dir_S3 = DIR_BUY;   // S3 방향
+input ENUM_TRADE_DIR Set1_Dir_S4 = DIR_BUY;   // S4 방향
+
 // Close
 input group "=== SET 1 Close point or usd ===";
-input double Set1_Close_1st_Points = 200.0;
-input double Set1_Close_USD_2 = 7.0;
-input double Set1_Close_USD_3 = 12.0;
-input double Set1_Close_USD_4 = 17.0;
-input double Set1_Close_USD_5 = 23.0;
-input double Set1_Close_USD_6 = 29.0;
-input double Set1_Close_USD_7 = 35.0;
-input double Set1_Close_USD_8 = 35.0;
-input double Set1_Close_USD_9 = 35.0;
-input double Set1_Close_USD_10 = 35.0;
-input double Set1_Close_USD_11Plus = 35.0;
+input double Set1_Close_1st_Points = 200.0;  // 1개 익절 포인트
+input double Set1_Close_USD_2 = 7.0;         // 2개 익절 usd
+input double Set1_Close_USD_3 = 12.0;        // 3개 익절 usd
+input double Set1_Close_USD_4 = 17.0;        // 4개 익절 usd
+input double Set1_Close_USD_5 = 23.0;        // 5개 익절 usd
+input double Set1_Close_USD_6 = 29.0;        // 6개 익절 usd
+input double Set1_Close_USD_7 = 35.0;        // 7개 익절 usd
+input double Set1_Close_USD_8 = 35.0;        // 8개 익절 usd
+input double Set1_Close_USD_9 = 35.0;        // 9개 익절 usd
+input double Set1_Close_USD_10 = 35.0;       // 10개 익절 usd
+input double Set1_Close_USD_11Plus = 35.0;   // 11개 익절 usd
+
 // Daily
 input group "=== SET 1 Daily ===";
-input double Set1_DailyMinRange = 4000.0;
-input ENUM_TRADE_DIR Set1_Daily_R1 = DIR_NO_TRADE;
-input ENUM_TRADE_DIR Set1_Daily_R2 = DIR_SELL;
-input ENUM_TRADE_DIR Set1_Daily_R3 = DIR_NO_TRADE;
-input ENUM_TRADE_DIR Set1_Daily_R4 = DIR_SELL;
-input ENUM_TRADE_DIR Set1_Daily_S1 = DIR_NO_TRADE;
-input ENUM_TRADE_DIR Set1_Daily_S2 = DIR_BUY;
-input ENUM_TRADE_DIR Set1_Daily_S3 = DIR_NO_TRADE;
-input ENUM_TRADE_DIR Set1_Daily_S4 = DIR_BUY;
-input double Set1_NextDayGap_Sell = 400.0;
-input double Set1_NextDayGap_Buy = -400.0;
+input double Set1_DailyMinRange = 4000.0;           // (R4 - S4) 포인트
+input ENUM_TRADE_DIR Set1_Daily_R1 = DIR_NO_TRADE;  // Daily R1 방향
+input ENUM_TRADE_DIR Set1_Daily_R2 = DIR_SELL;      // Daily R2 방향
+input ENUM_TRADE_DIR Set1_Daily_R3 = DIR_NO_TRADE;  // Daily R3 방향
+input ENUM_TRADE_DIR Set1_Daily_R4 = DIR_SELL;      // Daily R4 방향
+input ENUM_TRADE_DIR Set1_Daily_S1 = DIR_NO_TRADE;  // Daily S1 방향
+input ENUM_TRADE_DIR Set1_Daily_S2 = DIR_BUY;       // Daily S2 방향
+input ENUM_TRADE_DIR Set1_Daily_S3 = DIR_NO_TRADE;  // Daily S3 방향
+input ENUM_TRADE_DIR Set1_Daily_S4 = DIR_BUY;       // Daily S4 방향
+input double Set1_NextDayGap_Sell = 400.0;          // SELL 익일 진입 갭
+input double Set1_NextDayGap_Buy = -400.0;          // BUY 익일 진입 갭
 
 // --- [Set 2] ---
 input group "=== SET 2 Settings ===";
-input string Set2_Symbol = "";
-input bool Set2_EnableBuy = true;
-input bool Set2_EnableSell = true;
-input string Set2_SellLots = "0.02,0.02,0.03,0.04,0.05,0.06";
-input string Set2_BuyLots = "0.02,0.02,0.03,0.04,0.05,0.06";
-input double Set2_GridStep = 400.0;
-input int Set2_MaxEntries = 9;
+input string Set2_Symbol = "";                                 // 통화쌍
+input bool Set2_EnableBuy = true;                              // BUY 진입 여부
+input bool Set2_EnableSell = true;                             // SELL 진입 여부
+input string Set2_SellLots = "0.02,0.02,0.03,0.04,0.05,0.06";  // SELL 랏
+input string Set2_BuyLots = "0.02,0.02,0.03,0.04,0.05,0.06";   // BUY 랏
+input double Set2_GridStep = 400.0;                            // 다음 진입 갭
+input int Set2_MaxEntries = 9;                                 // 최대 포지션 수
+
 // Gaps
 input group "=== SET 2 Gap ===";
-input double Set2_R1Gap = 90.0;
-input double Set2_R2Gap = 90.0;
-input double Set2_R3Gap = 70.0;
-input double Set2_R4Gap = 0.0;
-input double Set2_S1Gap = -90.0;
-input double Set2_S2Gap = -90.0;
-input double Set2_S3Gap = -70.0;
-input double Set2_S4Gap = 0.0;
+input double Set2_R1Gap = 90.0;   // R1 갭
+input double Set2_R2Gap = 90.0;   // R2 갭
+input double Set2_R3Gap = 70.0;   // R3 갭
+input double Set2_R4Gap = 0.0;    // R4 갭
+input double Set2_S1Gap = -90.0;  // S1 갭
+input double Set2_S2Gap = -90.0;  // S2 갭
+input double Set2_S3Gap = -70.0;  // S3 갭
+input double Set2_S4Gap = 0.0;    // S4 갭
+
 // Directions
 input group "=== SET 2 Direction ===";
-input ENUM_TRADE_DIR Set2_Dir_R1 = DIR_SELL;
-input ENUM_TRADE_DIR Set2_Dir_R2 = DIR_SELL;
-input ENUM_TRADE_DIR Set2_Dir_R3 = DIR_SELL;
-input ENUM_TRADE_DIR Set2_Dir_R4 = DIR_SELL;
-input ENUM_TRADE_DIR Set2_Dir_S1 = DIR_BUY;
-input ENUM_TRADE_DIR Set2_Dir_S2 = DIR_BUY;
-input ENUM_TRADE_DIR Set2_Dir_S3 = DIR_BUY;
-input ENUM_TRADE_DIR Set2_Dir_S4 = DIR_BUY;
+input ENUM_TRADE_DIR Set2_Dir_R1 = DIR_SELL;  // R1 방향
+input ENUM_TRADE_DIR Set2_Dir_R2 = DIR_SELL;  // R2 방향
+input ENUM_TRADE_DIR Set2_Dir_R3 = DIR_SELL;  // R3 방향
+input ENUM_TRADE_DIR Set2_Dir_R4 = DIR_SELL;  // R4 방향
+input ENUM_TRADE_DIR Set2_Dir_S1 = DIR_BUY;   // S1 방향
+input ENUM_TRADE_DIR Set2_Dir_S2 = DIR_BUY;   // S2 방향
+input ENUM_TRADE_DIR Set2_Dir_S3 = DIR_BUY;   // S3 방향
+input ENUM_TRADE_DIR Set2_Dir_S4 = DIR_BUY;   // S4 방향
+
 // Close
 input group "=== SET 2 Close point or usd ===";
-input double Set2_Close_1st_Points = 200.0;
-input double Set2_Close_USD_2 = 7.0;
-input double Set2_Close_USD_3 = 12.0;
-input double Set2_Close_USD_4 = 17.0;
-input double Set2_Close_USD_5 = 23.0;
-input double Set2_Close_USD_6 = 29.0;
-input double Set2_Close_USD_7 = 35.0;
-input double Set2_Close_USD_8 = 35.0;
-input double Set2_Close_USD_9 = 35.0;
-input double Set2_Close_USD_10 = 35.0;
-input double Set2_Close_USD_11Plus = 35.0;
+input double Set2_Close_1st_Points = 200.0;  // 1개 익절 포인트
+input double Set2_Close_USD_2 = 7.0;         // 2개 익절 usd
+input double Set2_Close_USD_3 = 12.0;        // 3개 익절 usd
+input double Set2_Close_USD_4 = 17.0;        // 4개 익절 usd
+input double Set2_Close_USD_5 = 23.0;        // 5개 익절 usd
+input double Set2_Close_USD_6 = 29.0;        // 6개 익절 usd
+input double Set2_Close_USD_7 = 35.0;        // 7개 익절 usd
+input double Set2_Close_USD_8 = 35.0;        // 8개 익절 usd
+input double Set2_Close_USD_9 = 35.0;        // 9개 익절 usd
+input double Set2_Close_USD_10 = 35.0;       // 10개 익절 usd
+input double Set2_Close_USD_11Plus = 35.0;   // 11개 익절 usd
+
 // Daily
 input group "=== SET 2 Daily ===";
-input double Set2_DailyMinRange = 4000.0;
-input ENUM_TRADE_DIR Set2_Daily_R1 = DIR_NO_TRADE;
-input ENUM_TRADE_DIR Set2_Daily_R2 = DIR_SELL;
-input ENUM_TRADE_DIR Set2_Daily_R3 = DIR_NO_TRADE;
-input ENUM_TRADE_DIR Set2_Daily_R4 = DIR_SELL;
-input ENUM_TRADE_DIR Set2_Daily_S1 = DIR_NO_TRADE;
-input ENUM_TRADE_DIR Set2_Daily_S2 = DIR_BUY;
-input ENUM_TRADE_DIR Set2_Daily_S3 = DIR_NO_TRADE;
-input ENUM_TRADE_DIR Set2_Daily_S4 = DIR_BUY;
-input double Set2_NextDayGap_Sell = 400.0;
-input double Set2_NextDayGap_Buy = -400.0;
+input double Set2_DailyMinRange = 4000.0;           // (R4 - S4) 포인트
+input ENUM_TRADE_DIR Set2_Daily_R1 = DIR_NO_TRADE;  // Daily R1 방향
+input ENUM_TRADE_DIR Set2_Daily_R2 = DIR_SELL;      // Daily R2 방향
+input ENUM_TRADE_DIR Set2_Daily_R3 = DIR_NO_TRADE;  // Daily R3 방향
+input ENUM_TRADE_DIR Set2_Daily_R4 = DIR_SELL;      // Daily R4 방향
+input ENUM_TRADE_DIR Set2_Daily_S1 = DIR_NO_TRADE;  // Daily S1 방향
+input ENUM_TRADE_DIR Set2_Daily_S2 = DIR_BUY;       // Daily S2 방향
+input ENUM_TRADE_DIR Set2_Daily_S3 = DIR_NO_TRADE;  // Daily S3 방향
+input ENUM_TRADE_DIR Set2_Daily_S4 = DIR_BUY;       // Daily S4 방향
+input double Set2_NextDayGap_Sell = 400.0;          // SELL 익일 진입 갭
+input double Set2_NextDayGap_Buy = -400.0;          // BUY 익일 진입 갭
 
 // --- [Set 3] ---
 input group "=== SET 3 Settings ===";
-input string Set3_Symbol = "";
-input bool Set3_EnableBuy = true;
-input bool Set3_EnableSell = true;
-input string Set3_SellLots = "0.02,0.02,0.03,0.04,0.05,0.06";
-input string Set3_BuyLots = "0.02,0.02,0.03,0.04,0.05,0.06";
-input double Set3_GridStep = 400.0;
-input int Set3_MaxEntries = 9;
+input string Set3_Symbol = "";                                 // 통화쌍
+input bool Set3_EnableBuy = true;                              // BUY 진입 여부
+input bool Set3_EnableSell = true;                             // SELL 진입 여부
+input string Set3_SellLots = "0.02,0.02,0.03,0.04,0.05,0.06";  // SELL 랏
+input string Set3_BuyLots = "0.02,0.02,0.03,0.04,0.05,0.06";   // BUY 랏
+input double Set3_GridStep = 400.0;                            // 다음 진입 갭
+input int Set3_MaxEntries = 9;                                 // 최대 포지션 수
+
 // Gaps
 input group "=== SET 3 Gap ===";
-input double Set3_R1Gap = 90.0;
-input double Set3_R2Gap = 90.0;
-input double Set3_R3Gap = 70.0;
-input double Set3_R4Gap = 0.0;
-input double Set3_S1Gap = -90.0;
-input double Set3_S2Gap = -90.0;
-input double Set3_S3Gap = -70.0;
-input double Set3_S4Gap = 0.0;
+input double Set3_R1Gap = 90.0;   // R1 갭
+input double Set3_R2Gap = 90.0;   // R2 갭
+input double Set3_R3Gap = 70.0;   // R3 갭
+input double Set3_R4Gap = 0.0;    // R4 갭
+input double Set3_S1Gap = -90.0;  // S1 갭
+input double Set3_S2Gap = -90.0;  // S2 갭
+input double Set3_S3Gap = -70.0;  // S3 갭
+input double Set3_S4Gap = 0.0;    // S4 갭
+
 // Directions
 input group "=== SET 3 Direction ===";
-input ENUM_TRADE_DIR Set3_Dir_R1 = DIR_SELL;
-input ENUM_TRADE_DIR Set3_Dir_R2 = DIR_SELL;
-input ENUM_TRADE_DIR Set3_Dir_R3 = DIR_SELL;
-input ENUM_TRADE_DIR Set3_Dir_R4 = DIR_SELL;
-input ENUM_TRADE_DIR Set3_Dir_S1 = DIR_BUY;
-input ENUM_TRADE_DIR Set3_Dir_S2 = DIR_BUY;
-input ENUM_TRADE_DIR Set3_Dir_S3 = DIR_BUY;
-input ENUM_TRADE_DIR Set3_Dir_S4 = DIR_BUY;
+input ENUM_TRADE_DIR Set3_Dir_R1 = DIR_SELL;  // R1 방향
+input ENUM_TRADE_DIR Set3_Dir_R2 = DIR_SELL;  // R2 방향
+input ENUM_TRADE_DIR Set3_Dir_R3 = DIR_SELL;  // R3 방향
+input ENUM_TRADE_DIR Set3_Dir_R4 = DIR_SELL;  // R4 방향
+input ENUM_TRADE_DIR Set3_Dir_S1 = DIR_BUY;   // S1 방향
+input ENUM_TRADE_DIR Set3_Dir_S2 = DIR_BUY;   // S2 방향
+input ENUM_TRADE_DIR Set3_Dir_S3 = DIR_BUY;   // S3 방향
+input ENUM_TRADE_DIR Set3_Dir_S4 = DIR_BUY;   // S4 방향
+
 // Close
 input group "=== SET 3 Close point or usd ===";
-input double Set3_Close_1st_Points = 200.0;
-input double Set3_Close_USD_2 = 7.0;
-input double Set3_Close_USD_3 = 12.0;
-input double Set3_Close_USD_4 = 17.0;
-input double Set3_Close_USD_5 = 23.0;
-input double Set3_Close_USD_6 = 29.0;
-input double Set3_Close_USD_7 = 35.0;
-input double Set3_Close_USD_8 = 35.0;
-input double Set3_Close_USD_9 = 35.0;
-input double Set3_Close_USD_10 = 35.0;
-input double Set3_Close_USD_11Plus = 35.0;
+input double Set3_Close_1st_Points = 200.0;  // 1개 익절 포인트
+input double Set3_Close_USD_2 = 7.0;         // 2개 익절 usd
+input double Set3_Close_USD_3 = 12.0;        // 3개 익절 usd
+input double Set3_Close_USD_4 = 17.0;        // 4개 익절 usd
+input double Set3_Close_USD_5 = 23.0;        // 5개 익절 usd
+input double Set3_Close_USD_6 = 29.0;        // 6개 익절 usd
+input double Set3_Close_USD_7 = 35.0;        // 7개 익절 usd
+input double Set3_Close_USD_8 = 35.0;        // 8개 익절 usd
+input double Set3_Close_USD_9 = 35.0;        // 9개 익절 usd
+input double Set3_Close_USD_10 = 35.0;       // 10개 익절 usd
+input double Set3_Close_USD_11Plus = 35.0;   // 11개 익절 usd
+
 // Daily
 input group "=== SET 3 Daily ===";
-input double Set3_DailyMinRange = 4000.0;
-input ENUM_TRADE_DIR Set3_Daily_R1 = DIR_NO_TRADE;
-input ENUM_TRADE_DIR Set3_Daily_R2 = DIR_SELL;
-input ENUM_TRADE_DIR Set3_Daily_R3 = DIR_NO_TRADE;
-input ENUM_TRADE_DIR Set3_Daily_R4 = DIR_SELL;
-input ENUM_TRADE_DIR Set3_Daily_S1 = DIR_NO_TRADE;
-input ENUM_TRADE_DIR Set3_Daily_S2 = DIR_BUY;
-input ENUM_TRADE_DIR Set3_Daily_S3 = DIR_NO_TRADE;
-input ENUM_TRADE_DIR Set3_Daily_S4 = DIR_BUY;
-input double Set3_NextDayGap_Sell = 400.0;
-input double Set3_NextDayGap_Buy = -400.0;
+input double Set3_DailyMinRange = 4000.0;           // (R4 - S4) 포인트
+input ENUM_TRADE_DIR Set3_Daily_R1 = DIR_NO_TRADE;  // Daily R1 방향
+input ENUM_TRADE_DIR Set3_Daily_R2 = DIR_SELL;      // Daily R2 방향
+input ENUM_TRADE_DIR Set3_Daily_R3 = DIR_NO_TRADE;  // Daily R3 방향
+input ENUM_TRADE_DIR Set3_Daily_R4 = DIR_SELL;      // Daily R4 방향
+input ENUM_TRADE_DIR Set3_Daily_S1 = DIR_NO_TRADE;  // Daily S1 방향
+input ENUM_TRADE_DIR Set3_Daily_S2 = DIR_BUY;       // Daily S2 방향
+input ENUM_TRADE_DIR Set3_Daily_S3 = DIR_NO_TRADE;  // Daily S3 방향
+input ENUM_TRADE_DIR Set3_Daily_S4 = DIR_BUY;       // Daily S4 방향
+input double Set3_NextDayGap_Sell = 400.0;          // SELL 익일 진입 갭
+input double Set3_NextDayGap_Buy = -400.0;          // BUY 익일 진입 갭
 
 // --- Internal Structures ---
 struct StrategySetting {
@@ -731,9 +742,13 @@ void CalculatePivotsForce(int idx) {
     }
 }
 
+//+------------------------------------------------------------------+
+//| [수정됨] Pivot Calculation (공식 변경: R4/S4 = P +- 2*Range)         |
+//+------------------------------------------------------------------+
 PivotLevels getPivotLevels(string symbol, double point, int shift) {
     PivotLevels pv;
     pv.success = false;
+
     double open[], high[], low[], close[];
     ArraySetAsSeries(high, true);
     ArraySetAsSeries(low, true);
@@ -741,33 +756,69 @@ PivotLevels getPivotLevels(string symbol, double point, int shift) {
     ArraySetAsSeries(open, true);
 
     ResetLastError();
-    int dataShift = shift + 1;
 
-    if (CopyHigh(symbol, PERIOD_D1, dataShift, 1, high) < 1) return pv;
-    if (CopyLow(symbol, PERIOD_D1, dataShift, 1, low) < 1) return pv;
-    if (CopyClose(symbol, PERIOD_D1, dataShift, 1, close) < 1) return pv;
-    if (CopyOpen(symbol, PERIOD_D1, shift, 1, open) < 1) return pv;
+    int calcDayIndex = shift + 1;
+
+    if (CopyHigh(symbol, PERIOD_D1, calcDayIndex, 3, high) < 3) return pv;
+    if (CopyLow(symbol, PERIOD_D1, calcDayIndex, 3, low) < 3) return pv;
+    if (CopyClose(symbol, PERIOD_D1, calcDayIndex, 2, close) < 2) return pv;
+    if (CopyOpen(symbol, PERIOD_D1, calcDayIndex, 2, open) < 2) return pv;
+
     datetime times[];
     ArraySetAsSeries(times, true);
-    if (CopyTime(symbol, PERIOD_D1, shift, 1, times) < 1) return pv;
+    if (CopyTime(symbol, PERIOD_D1, shift, 2, times) < 2) return pv;
 
-    pv.openPrice = open[0];
+    datetime tStart = iTime(symbol, PERIOD_D1, calcDayIndex);
+    datetime tEnd = iTime(symbol, PERIOD_D1, calcDayIndex - 1);
+    int barsH1 = Bars(symbol, PERIOD_H1, tStart, tEnd - 1);
+
+    MqlDateTime dt;
+    TimeToStruct(tStart, dt);
+
+    // [병합 조건] 지표와 동일하게 설정 (< 미만)
+    bool isSunday = (dt.day_of_week == 0);
+    bool isShortDay = (barsH1 < MinDayHours && barsH1 > 0);
+
+    double H, L, C;
+
+    if (isSunday || isShortDay) {
+        H = MathMax(high[0], high[1]);
+        L = MathMin(low[0], low[1]);
+        C = close[0];
+        pv.openPrice = open[1];  // 병합 시 금요일 시가
+    } else {
+        H = high[0];
+        L = low[0];
+        C = close[0];
+        pv.openPrice = open[0];
+    }
+
     pv.dayStart = times[0];
-    pv.dayEnd = times[0] + PeriodSeconds(PERIOD_D1);
-    double H = high[0];
-    double L = low[0];
-    double C = close[0];
+    datetime nextBarTime = iTime(symbol, PERIOD_D1, shift - 1);
+    if (shift == 0)
+        pv.dayEnd = pv.dayStart + PeriodSeconds(PERIOD_D1);
+    else
+        pv.dayEnd = (nextBarTime > 0) ? nextBarTime
+                                      : pv.dayStart + PeriodSeconds(PERIOD_D1);
+
+    // [핵심 수정] 공식 변경 적용
     pv.p = (H + L + C) / 3.0;
+    double range = H - L;  // 변동폭 계산
+
     pv.r1 = (2 * pv.p) - L;
     pv.s1 = (2 * pv.p) - H;
-    pv.r2 = pv.p + (H - L);
-    pv.s2 = pv.p - (H - L);
+    pv.r2 = pv.p + range;
+    pv.s2 = pv.p - range;
     pv.r3 = H + 2 * (pv.p - L);
     pv.s3 = L - 2 * (H - pv.p);
-    pv.r4 = H + 3 * (pv.p - L);
-    pv.s4 = L - 3 * (H - pv.p);
+
+    // 요청하신 공식: P +- 2*(H-L)
+    pv.r4 = pv.p + (2 * range);
+    pv.s4 = pv.p - (2 * range);
+
     pv.rangeR4S4 = (pv.r4 - pv.s4) / point;
     pv.success = true;
+
     return pv;
 }
 
@@ -800,9 +851,8 @@ color GetDirColor(int idx, int lineKey, bool isDaily, color defaultColor) {
     return defaultColor;
 }
 
-// [수정] ShowHistoryDays < 0 (음수)이면 삭제 안 함
 void CleanupHistory(int idx) {
-    if (ShowHistoryDays < 0) return;  // [무한 모드]
+    if (ShowHistoryDays < 0) return;
 
     datetime cutoff = iTime(settings[idx].symbol, PERIOD_D1, ShowHistoryDays);
 
@@ -829,13 +879,12 @@ void updateChartGraphics(int idx, bool force) {
     if (!force && currentBarTime == lastBarTime) return;
     lastBarTime = currentBarTime;
 
-    CleanupHistory(idx);  // 청소
+    CleanupHistory(idx);
 
     string p = states[idx].prefix;
     int digits = (int)SymbolInfoInteger(settings[idx].symbol, SYMBOL_DIGITS);
     double point = SymbolInfoDouble(settings[idx].symbol, SYMBOL_POINT);
 
-    // 루프 횟수 결정: 음수면 100일(충분히 많이), 양수면 설정값만큼
     int loopLimit = (ShowHistoryDays < 0) ? 100 : ShowHistoryDays;
 
     for (int d = 0; d <= loopLimit; d++) {
@@ -854,7 +903,6 @@ void updateChartGraphics(int idx, bool force) {
         color cS3 = GetDirColor(idx, 6, isDaily, clrRed);
         color cS4 = GetDirColor(idx, 7, isDaily, clrRed);
 
-        // [스타일 적용] PivotLineStyle
         createDailyLine(p + dateSuffix + "R4", pv.dayStart, pv.dayEnd, pv.r4,
                         cR4, PivotLineStyle);
         createDailyLine(p + dateSuffix + "R3", pv.dayStart, pv.dayEnd, pv.r3,
@@ -864,7 +912,6 @@ void updateChartGraphics(int idx, bool force) {
         createDailyLine(p + dateSuffix + "R1", pv.dayStart, pv.dayEnd, pv.r1,
                         cR1, PivotLineStyle);
 
-        // OP 라인은 두껍게 실선 유지
         createDailyLine(p + dateSuffix + "OP", pv.dayStart, pv.dayEnd,
                         pv.openPrice, clrYellow, STYLE_SOLID, 2);
 
@@ -931,7 +978,7 @@ void createDailyLine(string name, datetime t1, datetime t2, double price,
     ObjectSetInteger(0, name, OBJPROP_TIME, 0, t1);
     ObjectSetInteger(0, name, OBJPROP_TIME, 1, t2);
     ObjectSetInteger(0, name, OBJPROP_COLOR, col);
-    ObjectSetInteger(0, name, OBJPROP_STYLE, style);  // [적용]
+    ObjectSetInteger(0, name, OBJPROP_STYLE, style);
     ObjectSetInteger(0, name, OBJPROP_WIDTH, width);
 }
 

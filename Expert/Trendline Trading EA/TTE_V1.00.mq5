@@ -1,282 +1,201 @@
 //+------------------------------------------------------------------+
-//|                                          trendlinetrader_v1.3.mq5 |
-//|                                  copyright 2024, anonymous ltd.    |
-//|                                           https://github.com/hayan2 |
+//|                                        Trndline Limit Trading.mq5 |
+//|                                  Copyright 2025, p3pwp3p  |
+//|                                             https://github.com/hayan2 |
 //+------------------------------------------------------------------+
-#property copyright "copyright 2024, anonymous ltd."
+#property copyright "Copyright 2025, p3pwp3p"
 #property link "https://github.com/hayan2"
-#property version "1.3" // variable names changed to camelcase
+#property version "1.00"
+#property strict
 
-//--- include standard libraries
-#include <Trade/OrderInfo.mqh>
-#include <Trade/SymbolInfo.mqh>
-#include <Trade/Trade.mqh>
-
-//--- enumerations
-enum ENUM_TRENDLINE_ORDER_TYPE {
-    BUY_ORDER, // trendline for buy
-    SELL_ORDER // trendline for sell
-};
+#include <Trade\Trade.mqh>
 
 //+------------------------------------------------------------------+
-//| input parameters                                                 |
+//| Input Parameters                                                 |
 //+------------------------------------------------------------------+
-input group "--- main settings ---";
-input string TrendlineName = "trend";                  // name of the trendline object to follow
-input ENUM_TRENDLINE_ORDER_TYPE OrderType = BUY_ORDER; // type of order to place on the trendline
-input double LotSize = 0.01;
-input long MagicNumber = 333444;
-input int TakeProfitPoints = 200; // tp in points (0 = no tp)
-input int StopLossPoints = 200;   // sl in points (0 = no sl)
+input group "Object Name Settings";     // 오브젝트 이름 설정 그룹;
+input string InpBuyPrefix = "BUY_";     // 1. 매수 라인 접두사 (예: BUY_)
+input string InpSellPrefix = "SELL_";   // 2. 매도 라인 접두사 (예: SELL_)
+input string InpStopSuffix = "STOP";    // 3. 스탑 주문 식별자 (예: STOP)
+input string InpLimitSuffix = "LIMIT";  // 4. 리밋 주문 식별자 (예: LIMIT)
+
+input group "Trading Settings";    // 트레이딩 설정 그룹;
+input double InpLotSize = 0.1;     // 1. 주문 랏(Lot) 크기
+input int InpMagicNum = 20250129;  // 2. 매직 넘버
+input int InpSlippage = 10;        // 3. 슬리피지 허용 범위 (Point)
+
+input group "Risk Management";  // 리스크 관리 설정 그룹;
+input int InpTakeProfit = 500;  // 1. 테이크 프로핏 (Point, 0=미사용)
+input int InpStopLoss = 300;    // 2. 스탑 로스 (Point, 0=미사용)
+
+input group "Trailing Stop Settings";  // 트레일링 스탑 설정 그룹;
+input bool InpUseTSL = false;          // 1. 트레일링 스탑 사용 여부
+input int InpTSLStart = 200;           // 2. 트레일링 시작 수익 (Point)
+input int InpTSLStep = 50;             // 3. 트레일링 간격 (Point)
 
 //+------------------------------------------------------------------+
-//| trendline trader class                                           |
+//| Global Variables                                                 |
 //+------------------------------------------------------------------+
-class CTrendlineTrader {
-  private:
-    //--- settings
-    string symbol;
-    string trendlineName;
-    ENUM_TRENDLINE_ORDER_TYPE orderType;
-    double lots;
-    long magic;
-    int tpPoints;
-    int slPoints;
-
-    //--- state variables
-    ulong pendingOrderTicket;
-
-    //--- mql5 objects
-    CTrade *trade;
-    CSymbolInfo *symbolInfo;
-    COrderInfo *orderInfo;
-
-  public:
-    // constructor
-    CTrendlineTrader(string sym, CTrade &tradeInstance) {
-        symbol = sym;
-        trade = &tradeInstance;
-        symbolInfo = new CSymbolInfo();
-        symbolInfo.Name(symbol);
-        orderInfo = new COrderInfo();
-        pendingOrderTicket = 0;
-    }
-
-    // destructor
-    ~CTrendlineTrader() {
-        delete symbolInfo;
-        delete orderInfo;
-    }
-
-    // initialize with user settings
-    void init(string name, ENUM_TRENDLINE_ORDER_TYPE type, double lotSize, long magicNumber, int tp, int sl) {
-        trendlineName = name;
-        orderType = type; // --- corrected assignment ---
-        lots = lotSize;
-        magic = magicNumber;
-        tpPoints = tp;
-        slPoints = sl;
-
-        if (MQLInfoInteger(MQL_TESTER)) {
-            createTestTrendline();
-        }
-    }
-
-    // main logic to be called on every tick
-    void execute() {
-        if (ObjectFind(0, trendlineName) < 0) {
-            deletePendingOrder();
-            return;
-        }
-
-        if (pendingOrderTicket > 0 && !orderInfo.Select(pendingOrderTicket)) {
-            pendingOrderTicket = 0;
-        }
-
-        if (isPositionOpen())
-            return;
-
-        manageOrder();
-    }
-
-    double getCurrentTrendlinePrice(datetime t) {
-        datetime time1 = (datetime)ObjectGetInteger(0, trendlineName, OBJPROP_TIME, 0);
-        double price1 = ObjectGetDouble(0, trendlineName, OBJPROP_PRICE, 0);
-        datetime time2 = (datetime)ObjectGetInteger(0, trendlineName, OBJPROP_TIME, 1);
-        double price2 = ObjectGetDouble(0, trendlineName, OBJPROP_PRICE, 1);
-
-        if (time2 == time1)
-            return 0.0;
-
-        double slope = (price2 - price1) / (double)(time2 - time1);
-        double targetPrice = price1 + slope * (double)(t - time1);
-
-        return NormalizeDouble(targetPrice, (int)symbolInfo.Digits());
-    }
-
-    string getTrendlineName() {
-        return trendlineName;
-    }
-
-    // delete pending order on ea exit
-    void deinit() {
-        deletePendingOrder();
-    }
-
-  private:
-    // calculates the price on the trendline at a specific time
-    double getTrendlinePriceAtTime(datetime targetTime) {
-        datetime time1 = (datetime)ObjectGetInteger(0, trendlineName, OBJPROP_TIME, 0);
-        double price1 = ObjectGetDouble(0, trendlineName, OBJPROP_PRICE, 0);
-        datetime time2 = (datetime)ObjectGetInteger(0, trendlineName, OBJPROP_TIME, 1);
-        double price2 = ObjectGetDouble(0, trendlineName, OBJPROP_PRICE, 1);
-
-        if (time2 == time1)
-            return 0.0;
-
-        double slope = (price2 - price1) / (double)(time2 - time1);
-        double targetPrice = price1 + slope * (double)(targetTime - time1);
-
-        return NormalizeDouble(targetPrice, (int)symbolInfo.Digits());
-    }
-
-    // --- COMPLETELY REWRITTEN LOGIC ---
-    void manageOrder() {
-        double trendlinePriceNow = getTrendlinePriceAtTime(TimeCurrent());
-        if (trendlinePriceNow <= 0)
-            return;
-
-        symbolInfo.RefreshRates();
-        double ask = symbolInfo.Ask();
-        double bid = symbolInfo.Bid();
-        double point = symbolInfo.Point();
-
-        // --- corrected logic ---
-        if (orderType == BUY_ORDER) {
-            if (bid <= trendlinePriceNow) {
-                deletePendingOrder();
-                double tp = (tpPoints > 0) ? ask + tpPoints * point : 0;
-                double sl = (slPoints > 0) ? ask - slPoints * point : 0;
-                trade.Buy(lots, symbol, ask, sl, tp, "Trendline Market Buy");
-                return;
-            }
-
-            if (trendlinePriceNow >= ask)
-                return;
-
-            double slPrice = (slPoints > 0) ? trendlinePriceNow - slPoints * point : 0;
-            double tpPrice = (tpPoints > 0) ? trendlinePriceNow + tpPoints * point : 0;
-
-            if (pendingOrderTicket == 0) {
-                if (trade.BuyLimit(lots, trendlinePriceNow, symbol, slPrice, tpPrice, 0, 0, "Trendline Buy Limit"))
-                    pendingOrderTicket = trade.ResultOrder();
-            } else {
-                if (MathAbs(orderInfo.PriceOpen() - trendlinePriceNow) > point) {
-                    trade.OrderModify(pendingOrderTicket, trendlinePriceNow, slPrice, tpPrice, 0, 0);
-                }
-            }
-        } else if (orderType == SELL_ORDER) {
-            if (ask >= trendlinePriceNow) {
-                deletePendingOrder();
-                double tp = (tpPoints > 0) ? bid - tpPoints * point : 0;
-                double sl = (slPoints > 0) ? bid + slPoints * point : 0;
-                trade.Sell(lots, symbol, bid, sl, tp, "Trendline Market Sell");
-                return;
-            }
-
-            if (trendlinePriceNow <= bid)
-                return;
-
-            double slPrice = (slPoints > 0) ? trendlinePriceNow + slPoints * point : 0;
-            double tpPrice = (tpPoints > 0) ? trendlinePriceNow - tpPoints * point : 0;
-
-            if (pendingOrderTicket == 0) {
-                if (trade.SellLimit(lots, trendlinePriceNow, symbol, slPrice, tpPrice, 0, 0, "Trendline Sell Limit"))
-                    pendingOrderTicket = trade.ResultOrder();
-            } else {
-                if (MathAbs(orderInfo.PriceOpen() - trendlinePriceNow) > point) {
-                    trade.OrderModify(pendingOrderTicket, trendlinePriceNow, slPrice, tpPrice, 0, 0);
-                }
-            }
-        }
-    }
-
-    // checks if a market position from this ea is already open
-    bool isPositionOpen() {
-        for (int i = PositionsTotal() - 1; i >= 0; i--) {
-            if (PositionSelectByTicket(PositionGetTicket(i))) {
-                if (PositionGetString(POSITION_SYMBOL) == symbol && PositionGetInteger(POSITION_MAGIC) == magic)
-                    return true;
-            }
-        }
-        return false;
-    }
-
-    // deletes the pending order managed by the ea
-    void deletePendingOrder() {
-        if (pendingOrderTicket > 0) {
-            if (orderInfo.Select(pendingOrderTicket)) {
-                trade.OrderDelete(pendingOrderTicket);
-            }
-            pendingOrderTicket = 0;
-        }
-    }
-
-    // --- new function for testing ---
-    void createTestTrendline() {
-        datetime time1 = TimeCurrent() - 3600 * 24;
-        datetime time2 = TimeCurrent() + 3600 * 24;
-
-        symbolInfo.RefreshRates();
-        double priceNow = symbolInfo.Ask();
-        double point = symbolInfo.Point();
-
-        double price1, price2;
-        // Corrected: use the correct 'orderType' which is ENUM_TRENDLINE_ORDER_TYPE
-        if (orderType == BUY_ORDER) {
-            price1 = priceNow - 500 * point;
-            price2 = priceNow - 300 * point;
-        } else // SELL_ORDER
-        {
-            price1 = priceNow + 500 * point;
-            price2 = priceNow + 300 * point;
-        }
-
-        ObjectCreate(0, trendlineName, OBJ_TREND, 0, time1, price1, time2, price2);
-        ObjectSetInteger(0, trendlineName, OBJPROP_COLOR, clrLime);
-        Print("strategy tester detected. created sample trendline '", trendlineName, "' for testing.");
-    }
-};
-
-//--- global variables
-CTrendlineTrader *trader;
 CTrade trade;
 
 //+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
 int OnInit() {
-    trade.SetExpertMagicNumber(MagicNumber);
-
-    trader = new CTrendlineTrader(Symbol(), trade);
-    trader.init(TrendlineName, OrderType, LotSize, MagicNumber, TakeProfitPoints, StopLossPoints);
-    Print(trader.getTrendlineName());
-
+    trade.SetExpertMagicNumber(InpMagicNum);
+    trade.SetDeviationInPoints(InpSlippage);
     return (INIT_SUCCEEDED);
 }
 
 //+------------------------------------------------------------------+
-void OnDeinit(const int reason) {
-    if (CheckPointer(trader) == POINTER_DYNAMIC) {
-        trader.deinit();
-        delete trader;
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason) {}
+
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick() {
+    // 1. 추세선 및 오브젝트 스캔 후 주문 실행
+    scanObjectsAndPlaceOrders();
+
+    // 2. 트레일링 스탑 관리
+    if (InpUseTSL) {
+        manageTrailingStop();
     }
 }
 
 //+------------------------------------------------------------------+
-void OnTick() {
-    if (CheckPointer(trader) == POINTER_DYNAMIC) {
-        trader.execute();
+//| Custom Functions                                                 |
+//+------------------------------------------------------------------+
+
+// 오브젝트를 스캔하고 추세선 가격을 계산하여 주문을 넣는 함수
+void scanObjectsAndPlaceOrders() {
+    int totalObjects = ObjectsTotal(0, -1, -1);
+
+    for (int i = 0; i < totalObjects; i++) {
+        string objName = ObjectName(0, i);
+
+        // 이미 주문이 들어간 오브젝트인지 체크 (중복 진입 방지)
+        if (isOrderExists(objName)) continue;
+
+        // 오브젝트 타입 확인 (형변환 오류 방지를 위해 long 타입 사용)
+        long objType = ObjectGetInteger(0, objName, OBJPROP_TYPE);
+
+        // 추세선(Trendline)과 가로선(Horizontal Line) 모두 허용
+        if (objType != OBJ_TREND && objType != OBJ_HLINE) continue;
+
+        // 가격 계산 로직
+        double price = 0.0;
+
+        if (objType == OBJ_TREND) {
+            // 추세선은 현재 시간 기준의 가격을 계산 (라인 ID 0)
+            price = ObjectGetValueByTime(0, objName, TimeCurrent(), 0);
+        } else {
+            // 가로선은 고정 가격
+            price = ObjectGetDouble(0, objName, OBJPROP_PRICE);
+        }
+
+        // 이름 분석 및 주문 분기 처리
+        if (StringFind(objName, InpBuyPrefix) == 0)  // 매수(BUY_)로 시작
+        {
+            if (StringFind(objName, InpLimitSuffix) > 0)
+                sendPendingOrder(ORDER_TYPE_BUY_LIMIT, price, objName);
+            else if (StringFind(objName, InpStopSuffix) > 0)
+                sendPendingOrder(ORDER_TYPE_BUY_STOP, price, objName);
+        } else if (StringFind(objName, InpSellPrefix) ==
+                   0)  // 매도(SELL_)로 시작
+        {
+            if (StringFind(objName, InpLimitSuffix) > 0)
+                sendPendingOrder(ORDER_TYPE_SELL_LIMIT, price, objName);
+            else if (StringFind(objName, InpStopSuffix) > 0)
+                sendPendingOrder(ORDER_TYPE_SELL_STOP, price, objName);
+        }
+    }
+}
+
+// 펜딩 주문 전송 함수
+void sendPendingOrder(ENUM_ORDER_TYPE type, double price, string comment) {
+    double sl = 0;
+    double tp = 0;
+    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+
+    // 가격 정규화
+    price = NormalizeDouble(price, _Digits);
+
+    // SL/TP 계산
+    if (type == ORDER_TYPE_BUY_LIMIT || type == ORDER_TYPE_BUY_STOP) {
+        if (InpStopLoss > 0) sl = price - (InpStopLoss * point);
+        if (InpTakeProfit > 0) tp = price + (InpTakeProfit * point);
+    } else if (type == ORDER_TYPE_SELL_LIMIT || type == ORDER_TYPE_SELL_STOP) {
+        if (InpStopLoss > 0) sl = price + (InpStopLoss * point);
+        if (InpTakeProfit > 0) tp = price - (InpTakeProfit * point);
     }
 
-    Print("Current trendline price : ", trader.getCurrentTrendlinePrice(TimeCurrent()));
+    // 정규화
+    sl = NormalizeDouble(sl, _Digits);
+    tp = NormalizeDouble(tp, _Digits);
+
+    // *** 수정됨: _Symbol 인자 추가 ***
+    // OrderOpen(심볼, 주문타입, 랏, 가격, SL, TP, 유효기간, 만료일, 주석)
+    if (!trade.OrderOpen(_Symbol, type, InpLotSize, price, sl, tp,
+                         ORDER_TIME_GTC, 0, comment)) {
+        // 주문 실패 시 로그 출력
+        Print("OrderOpen Error: ", GetLastError());
+    }
+}
+
+// 중복 주문 확인 함수
+bool isOrderExists(string commentKey) {
+    // 대기 주문 확인
+    for (int i = OrdersTotal() - 1; i >= 0; i--) {
+        ulong ticket = OrderGetTicket(i);
+        if (OrderGetInteger(ORDER_MAGIC) == InpMagicNum) {
+            if (OrderGetString(ORDER_COMMENT) == commentKey) return true;
+        }
+    }
+    // 포지션 확인
+    for (int i = PositionsTotal() - 1; i >= 0; i--) {
+        ulong ticket = PositionGetTicket(i);
+        if (PositionGetInteger(POSITION_MAGIC) == InpMagicNum) {
+            if (PositionGetString(POSITION_COMMENT) == commentKey) return true;
+        }
+    }
+    return false;
+}
+
+// 트레일링 스탑 함수
+void manageTrailingStop() {
+    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+
+    for (int i = PositionsTotal() - 1; i >= 0; i--) {
+        ulong ticket = PositionGetTicket(i);
+        if (PositionGetInteger(POSITION_MAGIC) != InpMagicNum) continue;
+        if (PositionGetSymbol(i) != _Symbol) continue;
+
+        ENUM_POSITION_TYPE type =
+            (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+        double currentPrice = PositionGetDouble(POSITION_PRICE_CURRENT);
+        double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+        double currentSL = PositionGetDouble(POSITION_SL);
+        double currentTP = PositionGetDouble(POSITION_TP);
+
+        if (type == POSITION_TYPE_BUY) {
+            if (currentPrice - openPrice > InpTSLStart * point) {
+                double newSL = currentPrice - (InpTSLStep * point);
+                newSL = NormalizeDouble(newSL, _Digits);
+                if (newSL > currentSL && newSL < currentPrice)
+                    trade.PositionModify(ticket, newSL, currentTP);
+            }
+        } else if (type == POSITION_TYPE_SELL) {
+            if (openPrice - currentPrice > InpTSLStart * point) {
+                double newSL = currentPrice + (InpTSLStep * point);
+                newSL = NormalizeDouble(newSL, _Digits);
+                if ((newSL < currentSL || currentSL == 0) &&
+                    newSL > currentPrice)
+                    trade.PositionModify(ticket, newSL, currentTP);
+            }
+        }
+    }
 }
 //+------------------------------------------------------------------+
