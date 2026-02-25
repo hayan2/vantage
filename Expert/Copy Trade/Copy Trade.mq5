@@ -85,12 +85,6 @@ double calculateLotSize(string symbol, double originalVol,
     if (finalVol < minLot) finalVol = minLot;
     if (finalVol > maxLot) finalVol = maxLot;
 
-    // 슬레이브에서 작동 확인용 로그 출력
-    Print("마스터 진입 랏: ", originalVol,
-          " | 마스터 잔고: ", NormalizeDouble(masterBalance, 2),
-          " | 슬레이브 잔고: ", NormalizeDouble(slaveBalance, 2),
-          " -> 최종 진입 랏: ", NormalizeDouble(finalVol, 2));
-
     return NormalizeDouble(finalVol, 2);
 }
 
@@ -159,8 +153,6 @@ int OnInit() {
 
         // 10ms 단위로 소켓 감시
         EventSetMillisecondTimer(10);
-
-        Print("[수신 모드] 마스터 연결 대기 및 10ms 타이머 가동: ", connAddr);
     }
 
     return (INIT_SUCCEEDED);
