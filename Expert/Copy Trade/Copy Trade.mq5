@@ -1,16 +1,16 @@
 //+------------------------------------------------------------------+
-//|                                        Copy Trade.mq5  |
-//|                                  Copyright 2025, p3pwp3p  |
+//|                                                  Copy Trade.mq5  |
+//|                                         Copyright 2026, p3pwp3p  |
 //|                                             https://www.mql5.com |
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, p3pwp3p"
+#property copyright "Copyright 2026, p3pwp3p"
 #property link "https://www.mql5.com"
 #property version "1.00"
 #property strict
 
 #include <Trade\Trade.mqh>
 
-// ZeroMQ 상수 정의 (PascalCase)
+// ZeroMQ 상수 정의
 #define ZmqPub 1
 #define ZmqSub 2
 #define ZmqSubscribe 6
@@ -30,47 +30,53 @@ int zmq_close(long socket);
 int zmq_ctx_term(long context);
 #import
 
-// EA 역할 Enum (PascalCase)
+// EA 역할 Enum
 enum EnumEaRole {
     RoleMaster,  // 마스터 (송신, 터미널 a)
-    RoleSlave    // 슬레이브 (수신, 터미널 b 및 a')
+    RoleSlave    // 슬레이브 (수신, 터미널 b)
 };
 
-// 사용자 Input 변수 (PascalCase, input group 세미콜론 규칙)
+// 사용자 Input 변수
 input group "Common Settings";
 input EnumEaRole EaRole = RoleSlave;
-input string ZmqPort = "5555";
+string ZmqPort = "5555";
 
 input group "Receiver Settings";
-input string MasterIpAddress = "127.0.0.1";
-input bool UseManualLot = true;
+string MasterIpAddress = "127.0.0.1";
+input bool UseManualLot = false;
 input double LotMultiplier = 1.0;
 
-// 전역 변수 (camelCase)
+// 전역 변수
 long zmqContext = 0;
 long zmqSocket = 0;
 CTrade tradeCopier;
 
-// 문자열을 uchar 배열로 변환 (camelCase)
+// 문자열을 uchar 배열로 변환
 void stringToUcharArray(string str, uchar& arr[]) {
     StringToCharArray(str, arr, 0, WHOLE_ARRAY, CP_UTF8);
 }
 
-// 랏 사이즈 계산 및 브로커 규격에 맞게 보정 (camelCase)
-double calculateLotSize(string symbol, double originalVol) {
+// 랏 사이즈 계산 (자동 및 수동 배수 조절)
+double calculateLotSize(string symbol, double originalVol,
+                        double masterBalance) {
     double finalVol = originalVol;
+    double slaveBalance = AccountInfoDouble(ACCOUNT_BALANCE);
 
-    // 수동 배수 조절
     if (UseManualLot) {
+        // 수동 배수 모드
         finalVol = originalVol * LotMultiplier;
+    } else {
+        // 자동 비례 배수 모드
+        if (masterBalance > 0) {
+            finalVol = originalVol * (slaveBalance / masterBalance);
+        }
     }
 
-    // 브로커 규격 가져오기 (최소 랏, 최대 랏, 랏 증감 단위)
+    // 브로커 규격에 맞게 랏 사이즈 보정
     double minLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
     double maxLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
     double step = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
 
-    // 브로커의 증감 단위(step)에 맞게 정밀 반올림
     if (step > 0) {
         finalVol = MathRound(finalVol / step) * step;
     }
@@ -79,15 +85,16 @@ double calculateLotSize(string symbol, double originalVol) {
     if (finalVol < minLot) finalVol = minLot;
     if (finalVol > maxLot) finalVol = maxLot;
 
-    // [확인용 로그] 슬레이브에서만 계산 결과를 출력하여 배수 작동 확인
-    // (마스터는 무음)
+    // 슬레이브에서 작동 확인용 로그 출력
     Print("마스터 진입 랏: ", originalVol,
-          " -> 슬레이브 최종 진입 랏: ", NormalizeDouble(finalVol, 2));
+          " | 마스터 잔고: ", NormalizeDouble(masterBalance, 2),
+          " | 슬레이브 잔고: ", NormalizeDouble(slaveBalance, 2),
+          " -> 최종 진입 랏: ", NormalizeDouble(finalVol, 2));
 
     return NormalizeDouble(finalVol, 2);
 }
 
-// 수신된 청산 신호 처리 (camelCase)
+// 수신된 청산 신호 처리
 void closePositions(string targetSymbol, long dealType) {
     long posTypeToClose =
         (dealType == DEAL_TYPE_BUY) ? POSITION_TYPE_SELL : POSITION_TYPE_BUY;
@@ -103,18 +110,20 @@ void closePositions(string targetSymbol, long dealType) {
     }
 }
 
-// 신호 파싱 및 매매 실행 (camelCase)
+// 신호 파싱 및 매매 실행
 void processSignal(string msg) {
     string parts[];
     StringSplit(msg, '|', parts);
 
-    if (ArraySize(parts) == 4) {
+    // 메시지 구조: ACTION|SYMBOL|TYPE|VOL|BALANCE (총 5개)
+    if (ArraySize(parts) == 5) {
         string action = parts[0];
         string symbol = parts[1];
         long type = StringToInteger(parts[2]);
         double originalVol = StringToDouble(parts[3]);
+        double masterBalance = StringToDouble(parts[4]);
 
-        double finalVol = calculateLotSize(symbol, originalVol);
+        double finalVol = calculateLotSize(symbol, originalVol, masterBalance);
 
         if (action == "IN") {
             if (type == DEAL_TYPE_BUY)
@@ -148,7 +157,7 @@ int OnInit() {
         uchar filter[] = {0};
         zmq_setsockopt(zmqSocket, ZmqSubscribe, filter, 0);
 
-        // [중요 수정] 10ms(0.01초) 단위로 소켓을 감시하도록 타이머 설정
+        // 10ms 단위로 소켓 감시
         EventSetMillisecondTimer(10);
 
         Print("[수신 모드] 마스터 연결 대기 및 10ms 타이머 가동: ", connAddr);
@@ -176,9 +185,13 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
                 action = "OUT";
 
             if (action != "") {
+                double currentBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+
+                // 마스터 잔고(currentBalance)를 메시지 맨 끝에 추가하여 발송
                 string msg = action + "|" + symbol + "|" +
                              IntegerToString(dealType) + "|" +
-                             DoubleToString(volume, 2);
+                             DoubleToString(volume, 2) + "|" +
+                             DoubleToString(currentBalance, 2);
                 uchar msgBuf[];
                 stringToUcharArray(msg, msgBuf);
 
@@ -188,29 +201,26 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
     }
 }
 
-// 기존 OnTick 대신 OnTimer를 사용하여 틱 속도와 무관하게 즉각 반응
 void OnTimer() {
     if (EaRole != RoleSlave) return;
 
     uchar recvBuf[256];
 
-    // 큐에 쌓인 신호가 여러 개일 경우를 대비해 while문으로 모두 처리
     while (true) {
         int size = zmq_recv(zmqSocket, recvBuf, 256, ZmqDontwait);
         if (size > 0) {
             string msg = CharArrayToString(recvBuf, 0, size, CP_UTF8);
             processSignal(msg);
         } else {
-            break;  // 더 이상 읽을 신호가 없으면 루프 탈출
+            break;
         }
     }
 }
 
-// 사용하지 않는 OnTick은 비워둡니다
 void OnTick() {}
 
 void OnDeinit(const int reason) {
-    if (EaRole == RoleSlave) EventKillTimer();  // 슬레이브일 경우 타이머 해제
+    if (EaRole == RoleSlave) EventKillTimer();
     if (zmqSocket != 0) zmq_close(zmqSocket);
     if (zmqContext != 0) zmq_ctx_term(zmqContext);
 }
