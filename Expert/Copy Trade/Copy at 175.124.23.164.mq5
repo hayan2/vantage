@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
-//|                                                  Copy Trade.mq5  |
-//|                                         Copyright 2026, p3pwp3p  |
+//|                                        프로그램 제목.mq5  |
+//|                                  Copyright 2025, p3pwp3p  |
 //|                                             https://www.mql5.com |
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2026, p3pwp3p"
+#property copyright "Copyright 2025, p3pwp3p"
 #property link "https://www.mql5.com"
 #property version "1.00"
 #property strict
@@ -33,16 +33,16 @@ int zmq_ctx_term(long context);
 // EA 역할 Enum
 enum EnumEaRole {
     RoleMaster,  // 마스터 (송신, 터미널 a)
-    RoleSlave    // 슬레이브 (수신, 터미널 b)
+    RoleSlave    // 슬레이브 (수신, 터미널 b 및 a')
 };
 
 // 사용자 Input 변수
 input group "Common Settings";
 input EnumEaRole EaRole = RoleSlave;
-string ZmqPort = "5555";
+input string ZmqPort = "5555";
 
 input group "Receiver Settings";
-string MasterIpAddress = "127.0.0.1";
+input string MasterIpAddress = "175.124.23.164";
 input bool UseManualLot = false;
 input double LotMultiplier = 1.0;
 
@@ -71,7 +71,7 @@ double calculateLotSize(string symbol, double originalVol,
             finalVol = originalVol * (slaveBalance / masterBalance);
         }
     }
- 
+
     // 브로커 규격에 맞게 랏 사이즈 보정
     double minLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
     double maxLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
@@ -84,6 +84,12 @@ double calculateLotSize(string symbol, double originalVol,
     // 최소/최대치 제한
     if (finalVol < minLot) finalVol = minLot;
     if (finalVol > maxLot) finalVol = maxLot;
+
+    // 슬레이브에서 작동 확인용 로그 출력
+    Print("마스터 진입 랏: ", originalVol,
+          " | 마스터 잔고: ", NormalizeDouble(masterBalance, 2),
+          " | 슬레이브 잔고: ", NormalizeDouble(slaveBalance, 2),
+          " -> 최종 진입 랏: ", NormalizeDouble(finalVol, 2));
 
     return NormalizeDouble(finalVol, 2);
 }
@@ -153,6 +159,8 @@ int OnInit() {
 
         // 10ms 단위로 소켓 감시
         EventSetMillisecondTimer(10);
+
+        Print("[수신 모드] 마스터 연결 대기 및 10ms 타이머 가동: ", connAddr);
     }
 
     return (INIT_SUCCEEDED);
